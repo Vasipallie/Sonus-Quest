@@ -1,6 +1,8 @@
 //IMPORTS
 #include <Arduino.h>
 #include "BluetoothA2DPSource.h"
+#include "BluetoothSerial.h"
+#include "esp_gap_bt_api.h"
 #include <SPI.h>
 #include <SD.h>
 #include <Adafruit_GFX.h>
@@ -13,20 +15,39 @@
 #define TFT_SCLK 32
 #define TFT_BL   14
 const int SD_CS_PIN = 5;
+#define MAX_DEVICES 13
 
 //LOPAKA STUFF & Icons
 String TARGET_SPEAKER = "NULL";
+esp_bd_addr_t TARGET_ADDR = {0};
 BluetoothA2DPSource a2dp_source;
+BluetoothSerial SerialBT;
 File                audio_file;
 volatile bool       audio_sd_ready  = false;
 volatile bool       audio_switch_pending = false;
 volatile int        audio_pending_index  = -1;
 int                 audio_playing_index  = -1;
 
+// BT connection state — set only from BT callbacks, read from main task
+volatile bool       bt_connected         = false;
+volatile bool       bt_status_changed    = false;  // triggers a status-bar redraw in loop()
+volatile bool       pending_addr_save    = false;  // set when we learn the addr by name-match
+
 volatile float      volume_gain          = 0.5f;
 volatile int        current_volume       = 8;
 const int           MAX_VOLUME           = 10;
 const int           MIN_VOLUME           = 0;
+
+
+struct AudioDevice {
+  String  name;
+  String  address;
+};
+
+AudioDevice foundDevices[MAX_DEVICES];
+int selectedIndex = 0;
+String deviceNames[MAX_DEVICES];
+int deviceCount = 0;
 
 String screenname ="";
 /* 
@@ -38,7 +59,12 @@ ALL SCREEN NAMES
 - "CONNECT"
 */
 
-static const int RECONNECT_INTERVAL = 10;
+// Returns the top-bar text: speaker name when connected, "not connected" otherwise
+inline String getStatusText() {
+  return bt_connected ? TARGET_SPEAKER : String("Not Connected");
+}
+
+static const int RECONNECT_INTERVAL = 0.5;   
 class LopakaST7735 : public Adafruit_ST7735 {
 public:
   using Adafruit_ST7735::Adafruit_ST7735;
@@ -482,13 +508,20 @@ void scerror(String message){
     tft.drawString("System Error", 2, 31);
     tft.setFreeFont(NULL);
     tft.drawString("Your Sonus Quest has", 2, 51);
-    tft.drawString("Error", 2, 71);
     tft.drawString(message, 1, 61);
     tft.drawString("Please fix this error", 1, 142);
     tft.drawString("and restart", 1, 150);
 }
 //MIDDLEWARE
 //Initalise SD
+
+void updateStatusBar() {
+  tft.fillRect(0, 0, 128, 11, 0x1042);
+  tft.setTextSize(1);
+  tft.setFreeFont(NULL);
+  tft.setTextColor(bt_connected ? (uint16_t)0xFFFF : (uint16_t)0xF800);
+  tft.drawString(getStatusText(), 1, 2);
+}
 static bool init_sd(uint8_t cs_pin, uint8_t max_retries = 5) {
     for (uint8_t attempt = 1; attempt <= max_retries; ++attempt) {
         Serial.printf("[SD] Init attempt %d/%d (CS=GPIO%d)...\n",
@@ -583,7 +616,23 @@ void get_songlist(int songpos) {
   visibleTop = 0;
 }
 
-
+void saveSpeaker(const String& name, const esp_bd_addr_t addr) {
+  SD.remove("/data.txt");
+  File f = SD.open("/data.txt", FILE_WRITE);
+  if (!f) {
+    Serial.println("[SD] Could not open data.txt for writing");
+    return;
+  }
+  f.print("SPEAKER:");
+  f.println(name);
+  char addrBuf[18];
+  snprintf(addrBuf, sizeof(addrBuf), "%02x:%02x:%02x:%02x:%02x:%02x",
+           addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+  f.print("ADDR:");
+  f.println(addrBuf);
+  f.close();
+  Serial.printf("[SD] Saved speaker: %s  addr: %s\n", name.c_str(), addrBuf);
+}
 
 // SCREENS & its middleware 
 // HOME Music hightlighted
@@ -592,9 +641,10 @@ void homem(){
     tft.setTextColor(0xE459);
     tft.setTextSize(1);
     tft.setFreeFont(&FreeSans9pt7b);
-    tft.setTextColor(0xFFFF);
+    tft.setTextColor(bt_connected ? (uint16_t)0xFFFF : (uint16_t)0xF800);
     tft.setFreeFont(NULL);
-    tft.drawString(TARGET_SPEAKER, 1, 2);
+    tft.drawString(getStatusText(), 1, 2);
+    tft.setTextColor(0xFFFF);
     tft.setTextSize(2);
     tft.setFreeFont(&FreeSans9pt7b);
     tft.drawString("music", -1, 11);
@@ -609,9 +659,9 @@ void homem(){
 void homec(){
 tft.fillScreen(0x1042);
 tft.setTextSize(1);
-tft.setTextColor(0xFFFF);
+tft.setTextColor(bt_connected ? (uint16_t)0xFFFF : (uint16_t)0xF800);
 tft.setFreeFont(NULL);
-tft.drawString(TARGET_SPEAKER, 1, 2);
+tft.drawString(getStatusText(), 1, 2);
 tft.setTextColor(0xECFA);
 tft.setFreeFont(&FreeSans9pt7b);
 tft.drawString("music", 1, 13);
@@ -651,8 +701,8 @@ void musiclist() {
 
   tft.setTextSize(1);
   tft.setFreeFont(NULL);
-  tft.setTextColor(0xFFFF);
-  tft.drawString(TARGET_SPEAKER, 1, 2);
+  tft.setTextColor(bt_connected ? (uint16_t)0xFFFF : (uint16_t)0xF800);
+  tft.drawString(getStatusText(), 1, 2);
 }
 void boot(){
   static const unsigned char PROGMEM image_Iuf6aj_6ahZohbxT5Jb8q_transformed_bits[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0xfc,0x00,0x07,0x00,0x00,0x00,0x00,0x07,0xff,0x80,0x07,0x00,0x00,0x00,0x00,0x0f,0xff,0xe0,0x07,0x00,0x00,0x00,0x00,0x3f,0xff,0xf0,0x0f,0x80,0x00,0x00,0x00,0x7f,0xff,0xf8,0x0f,0x80,0x00,0x00,0x00,0xff,0xff,0xfc,0x1f,0xc0,0x00,0x00,0x00,0xff,0xff,0xfe,0x1f,0xc0,0x00,0x00,0x01,0xff,0xff,0xfe,0x3f,0xc0,0x00,0x00,0x0f,0xff,0xff,0xff,0x7f,0xff,0x00,0x00,0x3f,0xff,0xff,0xff,0x7f,0xff,0xf8,0x00,0x7f,0xff,0xff,0xff,0xff,0xff,0xf0,0x00,0xff,0xff,0xff,0xff,0x8f,0xff,0xe0,0x01,0xff,0xff,0xff,0xff,0xf3,0xff,0xc0,0x03,0xff,0xff,0xff,0xff,0xfd,0xff,0x00,0x03,0xff,0xff,0xff,0xff,0xfe,0xfe,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0x7c,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xf8,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xbc,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xbc,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xbc,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xfc,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xfe,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xbe,0x00,0x03,0xff,0xff,0xff,0xff,0xff,0xbe,0x00,0x03,0xff,0xff,0xff,0xff,0xff,0x8e,0x00,0x01,0xff,0xff,0xff,0xff,0xff,0x02,0x00,0x00,0xff,0xff,0xff,0xff,0xfe,0x01,0x00,0x00,0x7f,0xff,0xff,0xff,0xfe,0x00,0x00,0x00,0x3f,0xff,0xff,0xff,0xf8,0x00,0x00,0x00,0x07,0xff,0xff,0xff,0xe0,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
@@ -674,7 +724,6 @@ void update_volume_gain() {
   }
   Serial.printf("[VOLUME] Level: %d, Gain: %.4f\n", current_volume, volume_gain);
 }
-
 void draw_volume_bar() {
   if (screenname == "PLAYING") {
     tft.fillRect(13, 151, 100, 4, 0x1042);
@@ -684,7 +733,6 @@ void draw_volume_bar() {
     }
   }
 }
-
 void volup() {
   if (current_volume < MAX_VOLUME) {
     current_volume++;
@@ -692,7 +740,6 @@ void volup() {
     draw_volume_bar();
   }
 }
-
 void voldown() {
   if (current_volume > MIN_VOLUME) {
     current_volume--;
@@ -700,12 +747,66 @@ void voldown() {
     draw_volume_bar();
   }
 }
+void connect(){
+  // Show scanning screen
+  tft.fillScreen(0x1042);
+  tft.setTextColor(0xECFA);
+  tft.setTextSize(2);
+  tft.setFreeFont(&FreeSans9pt7b);
+  tft.drawString("connect", 1, -3);
+  tft.setTextColor(0xFFFF);
+  tft.setTextSize(1);
+  tft.setFreeFont(NULL);
+  tft.drawString("Scanning...", 27, 73);
+
+  deviceCount   = 0;
+  selectedIndex = 0;
+
+  if (!SerialBT.begin("Sonus Quest", true)) {
+    scerror("Bluetooth Fail");
+    delay(2000);
+    return;
+  }
+  BTScanResults *results = SerialBT.discover(8000);
+  if (results) {
+    for (int i = 0; i < results->getCount() && deviceCount < MAX_DEVICES; i++) {
+      BTAdvertisedDevice *dev = results->getDevice(i);
+      uint32_t cod        = dev->getCOD();
+      uint8_t  majorClass = (cod >> 8) & 0x1F;
+      if (majorClass == ESP_BT_COD_MAJOR_DEV_AV) {
+        String devName = (dev->getName().length() > 0)
+          ? dev->getName().c_str()
+          : dev->getAddress().toString().c_str();
+        foundDevices[deviceCount].name    = devName;
+        foundDevices[deviceCount].address = dev->getAddress().toString().c_str();
+        deviceCount++;
+      }
+    }
+  }
+  SerialBT.end(); 
+  int ypos[] = {29, 38, 47, 56, 65, 74, 83, 92, 101, 110, 119, 128, 137};
+  tft.fillScreen(0x1042);
+  tft.setFreeFont(&FreeSans9pt7b);
+  tft.setTextColor(0xECFA);
+  tft.setTextSize(2);
+  tft.drawString("connect", 1, -3);
+  tft.setFreeFont(NULL);
+  tft.setTextSize(1);
+
+  if (deviceCount == 0) {
+    tft.setTextColor(0xFFFF);
+    tft.drawString("No devices found", 3, ypos[0]);
+    return;
+  }
+
+  for (int i = 0; i < deviceCount; i++) {
+    tft.setTextColor(i == selectedIndex ? 0xF419 : 0xFFFF);
+    tft.drawString(foundDevices[i].name.c_str(), 3, ypos[i]);
+  }
+}
 
 void musicplay(String title, String artist, String duration) {
 
-static const unsigned char PROGMEM image_music_sound_wave_bits[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x0e,0x38,0x03,0x8e,0x00,0x00,0x00,0x0e,0x38,0x03,0x8e,0x00,0x00,0x00,0x0e,0x38,0x03,0x8e,0x00,0x00,0x00,0x0e,0x38,0xe3,0x8e,0x00,0x00,0x00,0x0e,0x38,0xe3,0x8e,0x00,0x00,0x00,0x0e,0x38,0xe3,0x8e,0x00,0x00,0x03,0x8e,0x38,0xe3,0x8e,0x00,0x00,0x03,0x8e,0x38,0xe3,0x8e,0x00,0x00,0x03,0x8e,0x38,0xe3,0x8e,0x00,0x00,0xe3,0x8e,0x38,0xe3,0x8e,0x38,0xe0,0xe3,0x8e,0x38,0xe3,0x8e,0x38,0xe0,0xe3,0x8e,0x38,0xe3,0x8e,0x38,0xe0,0x00,0x0e,0x38,0xe3,0x8e,0x38,0x00,0x00,0x0e,0x38,0xe3,0x8e,0x38,0x00,0x00,0x0e,0x38,0xe3,0x8e,0x38,0x00,0x00,0x0e,0x38,0xe3,0x8e,0x00,0x00,0x00,0x0e,0x38,0xe3,0x8e,0x00,0x00,0x00,0x0e,0x38,0xe3,0x8e,0x00,0x00,0x00,0x0e,0x38,0x03,0x80,0x00,0x00,0x00,0x0e,0x38,0x03,0x80,0x00,0x00,0x00,0x0e,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x03,0x80,0x00,0x00,0x00,0x00,0x38,0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
-static const unsigned char PROGMEM image_Voldwn_bits[] = {0x10,0x30,0xf4,0xf4,0x30,0x10};
-static const unsigned char PROGMEM image_Volup_bits[] = {0x12,0x31,0xf5,0xf5,0x31,0x12};
 tft.fillScreen(0x1042);
 tft.fillRect(2, 128, 124, 3, 0xB272);
 tft.setTextColor(0xFFFF);
@@ -716,12 +817,13 @@ tft.setTextColor(0xBDF7);
 tft.setFreeFont(NULL);
 tft.drawString(duration, 97, 133);
 tft.drawLine(1, 129, 126, 129, 0xB272);
-tft.drawString("0:00", 2, 133); /* FIX THIS IN POST VRO PLS IDK WHAT I'M DOING */
+tft.drawString("0:00", 2, 133); 
 tft.setTextColor(0xFFFF);
 tft.drawString(artist, 3, 119);
 tft.drawLine(0, 11, 127, 11, 0xFFFF);
 tft.drawLine(2, 129, 88, 129, 0xFFFF);
-tft.drawString(TARGET_SPEAKER, 1, 2);
+tft.setTextColor(bt_connected ? (uint16_t)0xFFFF : (uint16_t)0xF800);
+tft.drawString(getStatusText(), 1, 2);
 tft.drawBitmap(37, 37, image_music_sound_wave_bits, 51, 48, 0xFFFF);
 tft.drawBitmap(3, 150, image_Voldwn_bits, 6, 6, 0xFFFF);
 tft.drawBitmap(117, 150, image_Volup_bits, 8, 6, 0xFFFF);
@@ -733,7 +835,10 @@ const int BTN_NEXT = 21;
 const int BTN_BACK = 22;
 const int CONFIRM = 16;
 const int UP = 15;
-const int DOWN = 17;
+const int DOWN = 17;/* 
+const int RIGHT = 34;
+const int LEFT = 13;
+ */
 
 void openAudioFile(int songIndex) {
   if (songIndex < 0 || songIndex >= songCount) return;
@@ -789,26 +894,38 @@ int32_t get_sound_data(uint8_t* data, int32_t byte_count) {
   return bytes_read;
 }
 bool on_device_discovered(const char* name, esp_bd_addr_t addr, int rssi) {
+  if (TARGET_SPEAKER == "NULL" || TARGET_SPEAKER.length() == 0) return false;
+
   if (name && strlen(name) > 0) {
-    Serial.printf("[BT]  Found: %-30s  RSSI=%d dBm\n", name, rssi);
+    Serial.printf("[BT]  Discovered: %-30s  RSSI=%d dBm\n", name, rssi);
   }
-  if (name && TARGET_SPEAKER.length() > 0 &&
-      strcmp(name, TARGET_SPEAKER.c_str()) == 0) {
-    Serial.printf("[BT]  *** Target '%s' found — connecting ***\n", name);
+  if (name && String(name) == TARGET_SPEAKER) {
+    Serial.printf("[BT]  *** Target '%s' matched — connecting ***\n",
+                  TARGET_SPEAKER.c_str());
+    static const esp_bd_addr_t zeroAddr = {0};
+    if (memcmp(addr, TARGET_ADDR, sizeof(esp_bd_addr_t)) != 0 &&
+        memcmp(addr, zeroAddr,    sizeof(esp_bd_addr_t)) != 0) {
+      memcpy(TARGET_ADDR, addr, sizeof(esp_bd_addr_t));
+      pending_addr_save = true;  
+    }
     return true;
   }
-  return false;
+  return false;  
 }
 void on_connection_state_changed(esp_a2d_connection_state_t state, void*) {
   switch (state) {
     case ESP_A2D_CONNECTION_STATE_DISCONNECTED:
       Serial.printf("[BT]  Disconnected — retrying in %d s\n", RECONNECT_INTERVAL);
+      bt_connected      = false;
+      bt_status_changed = true;
       break;
     case ESP_A2D_CONNECTION_STATE_CONNECTING:
       Serial.printf("[BT]  Connecting to '%s'...\n", TARGET_SPEAKER.c_str());
       break;
     case ESP_A2D_CONNECTION_STATE_CONNECTED:
       Serial.printf("[BT]  Connected to '%s' — streaming\n", TARGET_SPEAKER.c_str());
+      bt_connected      = true;
+      bt_status_changed = true;
       break;
     case ESP_A2D_CONNECTION_STATE_DISCONNECTING:
       Serial.println("[BT]  Disconnecting...");
@@ -819,14 +936,15 @@ void on_connection_state_changed(esp_a2d_connection_state_t state, void*) {
   }
 }
 
-
 void setup(){
     Serial.begin(115200);
     delay(500);
     update_volume_gain();
     pinMode(BTN_NEXT, INPUT_PULLUP);
     pinMode(BTN_BACK, INPUT_PULLUP);
-    pinMode(CONFIRM, INPUT_PULLUP);
+    pinMode(CONFIRM, INPUT_PULLUP);/* 
+    pinMode(RIGHT, INPUT_PULLUP);
+    pinMode(LEFT, INPUT_PULLUP); */
 
     pinMode(UP, INPUT_PULLUP);
     pinMode(DOWN, INPUT_PULLUP);
@@ -849,47 +967,71 @@ void setup(){
     }
     File file = SD.open("/data.txt");
     if (!file) {
-        scerror("Data File Not Found");
-        while (true) delay(1000);
+        TARGET_SPEAKER = "NULL";
+        Serial.println("[BT] No data.txt found, using NULL speaker");
+    } else {
+        while (file.available()) {
+            String line = file.readStringUntil('\n');
+            line.trim();
+            if (line.startsWith("SPEAKER:")) {
+                TARGET_SPEAKER = line.substring(8);
+                TARGET_SPEAKER.trim();
+            } else if (line.startsWith("ADDR:")) {
+                String addrStr = line.substring(5);
+                addrStr.trim();
+                sscanf(addrStr.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                       &TARGET_ADDR[0], &TARGET_ADDR[1], &TARGET_ADDR[2],
+                       &TARGET_ADDR[3], &TARGET_ADDR[4], &TARGET_ADDR[5]);
+                Serial.printf("[BT] Loaded MAC: %s\n", addrStr.c_str());
+            }
+        }
+        file.close();
     }
-    String line1 = file.readStringUntil('\n');
-    line1.trim();
-    if (line1.length() == 0) {
-        scerror("Data File Corrupted");
-        while (true) delay(1000);
-    }
-    if (line1.startsWith("SPEAKER:")) {
-        TARGET_SPEAKER = line1.substring(8);
-        TARGET_SPEAKER.trim();
-    }
-    file.close();
-    Serial.printf("[BT] speaker: %s\n", TARGET_SPEAKER.c_str());
+    Serial.printf("[BT] Speaker: %s\n", TARGET_SPEAKER.c_str());
 
     homem();
     get_songlist(0);
     screenname = "HOMEM";
 
-    Serial.println("[BT] Init Bluetooth");
-    a2dp_source.set_auto_reconnect(true, RECONNECT_INTERVAL);
+    Serial.println("[BT] Registering BT callbacks");
+    a2dp_source.set_auto_reconnect(false);
     a2dp_source.set_on_connection_state_changed(on_connection_state_changed);
     a2dp_source.set_ssid_callback(on_device_discovered);
     a2dp_source.set_data_callback(get_sound_data);
-    a2dp_source.start();
-    Serial.println("[BT] Scanning");
+    if (TARGET_SPEAKER != "NULL" && TARGET_SPEAKER.length() > 0) {
+        Serial.printf("[BT] Auto-connecting to saved speaker: %s\n", TARGET_SPEAKER.c_str());
+        a2dp_source.set_auto_reconnect(true, RECONNECT_INTERVAL);
+        static char speakerBuf[64];
+        TARGET_SPEAKER.toCharArray(speakerBuf, sizeof(speakerBuf));
+        a2dp_source.start(speakerBuf);
+    }
 }
 void loop() {
+  if (bt_status_changed) {
+    bt_status_changed = false;
+    updateStatusBar();
+  }
+  if (pending_addr_save) {
+    pending_addr_save = false;
+    saveSpeaker(TARGET_SPEAKER, TARGET_ADDR);
+  }
   static bool lastNext = HIGH;
   static bool lastBack = HIGH;
   static bool lastCONFIRM = HIGH;
   static bool lastUP = HIGH;
-  static bool lastDOWN = HIGH;
+  static bool lastDOWN = HIGH;/* 
+  static bool lastRIGHT = HIGH;
+  static bool lastLEFT = HIGH; */
 
+  
   bool nowNext = digitalRead(BTN_NEXT);
   bool nowBack = digitalRead(BTN_BACK);
   bool nowCONFIRM = digitalRead(CONFIRM);
   bool nowUP = digitalRead(UP);
-  bool nowDOWN = digitalRead(DOWN);
-
+  bool nowDOWN = digitalRead(DOWN);/* 
+  bool nowRIGHT = digitalRead(RIGHT);
+  bool nowLEFT = digitalRead(LEFT);
+ */
    if (lastUP == HIGH && nowUP == LOW) {
     Serial.println("UP Pressed");
     volup();
@@ -905,14 +1047,23 @@ void loop() {
     if (screenname == "HOMEM"){
       screenname = "HOMEC";
       homec();
-    } if (screenname == "MUSILIST"){
+    } else if (screenname == "MUSILIST"){
       if (songCount > 0 && selectedSong < songCount - 1) {
-      selectedSong++;
-      musiclist();/* 
-      openAudioFile(selectedSong); */
+        selectedSong++;
+        musiclist();
+      }
+    } else if (screenname == "CONNECT" && deviceCount > 0) {
+      if (selectedIndex < deviceCount - 1) {
+        selectedIndex++;
+        int ypos[] = {29, 38, 47, 56, 65, 74, 83, 92, 101, 110, 119, 128, 137};
+        tft.setFreeFont(NULL);
+        tft.setTextSize(1);
+        for (int i = 0; i < deviceCount; i++) {
+          tft.setTextColor(i == selectedIndex ? 0xF419 : 0xFFFF);
+          tft.drawString(foundDevices[i].name.c_str(), 3, ypos[i]);
+        }
+      }
     }
-    }
-    
     delay(150);
   }
   if (lastBack == HIGH && nowBack == LOW) {
@@ -920,29 +1071,150 @@ void loop() {
     if (screenname == "HOMEC"){
       screenname = "HOMEM";
       homem();
-    } if (screenname == "MUSILIST"){
-    if (songCount > 0 && selectedSong > 0) {
-      selectedSong--;
-      get_songlist(0);
-      musiclist();/* 
-      openAudioFile(selectedSong); */
+    } else if (screenname == "MUSILIST"){
+      if (songCount > 0 && selectedSong > 0) {
+        selectedSong--;
+        musiclist();
+      }
+    } else if (screenname == "CONNECT" && deviceCount > 0) {
+      if (selectedIndex > 0) {
+        selectedIndex--;
+        int ypos[] = {29, 38, 47, 56, 65, 74, 83, 92, 101, 110, 119, 128, 137};
+        tft.setFreeFont(NULL);
+        tft.setTextSize(1);
+        for (int i = 0; i < deviceCount; i++) {
+          tft.setTextColor(i == selectedIndex ? 0xF419 : 0xFFFF);
+          tft.drawString(foundDevices[i].name.c_str(), 3, ypos[i]);
+        }
+      }
+    } else if (screenname == "CONNECT") {
+      screenname = "HOMEC";
+      homec();
     }
-  }
     delay(150);
   }
   if (lastCONFIRM == HIGH && nowCONFIRM == LOW) {
     Serial.println("CONFIRM Pressed");
-    if (screenname == "HOMEM" || screenname == "HOMEC"){
+    if (screenname == "HOMEM"){
       screenname = "MUSILIST";
       musiclist();
     } else if (screenname == "MUSILIST"){
       if (songCount > 0) {
         openAudioFile(selectedSong);
       }
+    } else if (screenname == "HOMEC"){
+      screenname = "CONNECT";
+      connect();
+    } else if (screenname == "CONNECT" && deviceCount > 0) {
+      TARGET_SPEAKER = foundDevices[selectedIndex].name;
+      Serial.printf("[BT] Connecting to: %s\n", TARGET_SPEAKER.c_str());
+
+      tft.fillScreen(0x1042);
+      tft.setFreeFont(&FreeSans9pt7b);
+      tft.setTextColor(0xECFA);
+      tft.setTextSize(2);
+      tft.drawString("connect", 1, -3);
+      tft.setFreeFont(NULL);
+      tft.setTextSize(1);
+      tft.setTextColor(0xFFFF);
+      tft.drawString("Connecting to:", 10, 60);
+      tft.drawString(TARGET_SPEAKER, 10, 74);
+
+      saveSpeaker(TARGET_SPEAKER, TARGET_ADDR);
+
+      if (a2dp_source.is_connected()) {
+        a2dp_source.end(false);
+        delay(300);
+      }
+
+      esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
+
+      int bondCount = esp_bt_gap_get_bond_device_num();
+      if (bondCount > 0) {
+        esp_bd_addr_t* bondList = new esp_bd_addr_t[bondCount];
+        esp_bt_gap_get_bond_device_list(&bondCount, bondList);
+        for (int i = 0; i < bondCount; i++) {
+          esp_bt_gap_remove_bond_device(bondList[i]);
+        }
+        delete[] bondList;
+        delay(200);
+      }
+
+      esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
+
+      sscanf(foundDevices[selectedIndex].address.c_str(),
+             "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+             &TARGET_ADDR[0], &TARGET_ADDR[1], &TARGET_ADDR[2],
+             &TARGET_ADDR[3], &TARGET_ADDR[4], &TARGET_ADDR[5]);
+
+      a2dp_source.set_auto_reconnect(true, RECONNECT_INTERVAL);
+      static char speakerBuf[64];
+      TARGET_SPEAKER.toCharArray(speakerBuf, sizeof(speakerBuf));
+      a2dp_source.start(speakerBuf);
+
+      screenname = "HOMEM";
+      homem();
+    }
+    delay(150);
+  }/* 
+  if (lastRIGHT == HIGH && nowRIGHT == LOW) {
+    Serial.println("RIGHT Pressed");
+    if (screenname == "HOMEM"){
+      screenname = "MUSILIST";
+      musiclist();
+
+    } else if (screenname == "HOMEC"){
+      screenname = "CONNECT";
+      connect();
+    } else if (screenname == "MUSILIST"){
+      if (songCount > 0) {
+        openAudioFile(selectedSong);
+      }
+    } else if (screenname == "PLAYING"){
+      if (songCount > 0 && selectedSong < songCount - 1) {
+        selectedSong++;
+        openAudioFile(selectedSong);
+      }
     }
     delay(150);
   }
-  lastNext = nowNext;
-  lastBack = nowBack;
+  if (lastLEFT == HIGH && nowLEFT == LOW) {
+    Serial.println("LEFT Pressed");
+    if (screenname == "MUSILIST"){
+      screenname = "HOMEM";
+      homem();
+    } else if (screenname == "CONNECT"){
+      screenname = "HOMEC";
+      homec();
+    } else if (screenname == "PLAYING"){
+      if (songCount > 0 && selectedSong > 0) {
+        selectedSong--;
+        openAudioFile(selectedSong);
+      }
+    }
+    delay(150);
+  }
+  
+  static unsigned long leftPressStart = 0;
+  if (lastLEFT == LOW && nowLEFT == LOW) {
+    if (leftPressStart == 0) {
+      leftPressStart = millis();
+    } else if (millis() - leftPressStart > 2000) { 
+      Serial.println("LEFT Long Pressed");
+      if (screenname == "PLAYING") {
+        screenname = "MUSILIST";
+        musiclist();
+      }
+      leftPressStart = 0; 
+    }
+  } else {
+    leftPressStart = 0; 
+  } */
+  lastNext    = nowNext;
+  lastBack    = nowBack;
   lastCONFIRM = nowCONFIRM;
+  lastUP      = nowUP;   
+  lastDOWN    = nowDOWN; 
+  /* lastRIGHT = nowRIGHT;
+  lastLEFT = nowLEFT; */
 }
