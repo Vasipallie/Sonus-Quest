@@ -1,0 +1,14 @@
+:root {
+  color: #f6f6f6;
+  background-color: #170913;
+  margin: 0;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100vh;
+  box-sizing: border-box;
+  background: radial-gradient(circle at center, #47213B, #160912);
+  background-attachment: fixed;
+}

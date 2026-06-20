@@ -764,7 +764,7 @@ void connect(){
 
   if (!SerialBT.begin("Sonus Quest", true)) {
     scerror("Bluetooth Fail");
-    delay(2000);
+    delay(1000);
     return;
   }
   BTScanResults *results = SerialBT.discover(8000);
@@ -1000,7 +1000,13 @@ void setup(){
     a2dp_source.set_data_callback(get_sound_data);
     if (TARGET_SPEAKER != "NULL" && TARGET_SPEAKER.length() > 0) {
         Serial.printf("[BT] Auto-connecting to saved speaker: %s\n", TARGET_SPEAKER.c_str());
-        a2dp_source.set_auto_reconnect(true, RECONNECT_INTERVAL);
+        static const esp_bd_addr_t zeroAddr = {0};
+        if (memcmp(TARGET_ADDR, zeroAddr, sizeof(esp_bd_addr_t)) != 0) {
+            Serial.println("[BT] Using MAC address for fast auto-reconnect");
+            a2dp_source.set_auto_reconnect(TARGET_ADDR, 5); // 5 retries before fallback to scanning
+        } else {
+            a2dp_source.set_auto_reconnect(true, 5);
+        }
         static char speakerBuf[64];
         TARGET_SPEAKER.toCharArray(speakerBuf, sizeof(speakerBuf));
         a2dp_source.start(speakerBuf);
@@ -1147,7 +1153,12 @@ void loop() {
              &TARGET_ADDR[0], &TARGET_ADDR[1], &TARGET_ADDR[2],
              &TARGET_ADDR[3], &TARGET_ADDR[4], &TARGET_ADDR[5]);
 
-      a2dp_source.set_auto_reconnect(true, RECONNECT_INTERVAL);
+      static const esp_bd_addr_t zeroAddr = {0};
+      if (memcmp(TARGET_ADDR, zeroAddr, sizeof(esp_bd_addr_t)) != 0) {
+        a2dp_source.set_auto_reconnect(TARGET_ADDR, 5);
+      } else {
+        a2dp_source.set_auto_reconnect(true, 5);
+      }
       static char speakerBuf[64];
       TARGET_SPEAKER.toCharArray(speakerBuf, sizeof(speakerBuf));
       a2dp_source.start(speakerBuf);

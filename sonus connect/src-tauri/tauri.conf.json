@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Sonus-Connect",
+  "version": "0.1.0",
+  "identifier": "quest.sonus.connect",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Sonus Connect",
+        "fullscreen": false,
+        "resizable": false,
+        "width": 400,
+        "height": 700
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/256x256.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico" 
+    ]
+  }
+}
