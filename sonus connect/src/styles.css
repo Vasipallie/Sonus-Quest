@@ -1,14 +1,109 @@
+@font-face{
+  font-family: 'geomanist';
+  src: url(assets/geomanist.ttf) format('truetype');
+}
+@font-face {
+  font-family: 'garet';
+  src: url(assets/garet.ttf) format('truetype');
+}
 :root {
   color: #f6f6f6;
   background-color: #170913;
   margin: 0;
+  font-family: 'geomanist';
+  padding: 0;
+  box-sizing: border-box;
 }
 
 html,
 body {
-  margin: 0;
-  min-height: 100vh;
   box-sizing: border-box;
   background: radial-gradient(circle at center, #47213B, #160912);
   background-attachment: fixed;
+}
+.subtitle {
+  font-size: 1.3em;
+  margin-inline-start: 5px;
+  margin-bottom: 10px;
+}
+.h1{
+  background: linear-gradient(45deg, #FC5306, #dd0067);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  font-size: 60px;
+  font-family: 'garet';
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+}
+p {
+  font-size: 1.2em;
+  line-height: 1;
+  margin: 0 5px;
+}
+.grid{
+  display: grid;
+  grid-template-columns: 170px 170px;
+  gap: 10px;
+  margin: 5px;
+}
+.tile{
+  display:flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  background: linear-gradient(45deg, #FC5306, #dd0067);
+  width: 170px;
+  height: 170px;
+  padding: 10px;
+  box-sizing: border-box;
+  cursor: pointer;
+  font-size: 1.6em;
+
+}
+.tile:hover{
+  background: linear-gradient(45deg, #dd0067, #FC5306);
+}
+.imgt{
+  width: 60%;
+  height: 60%;
+  margin: auto;
+  object-fit: cover;
+}
+.connect{
+  position: fixed;
+  bottom: 0px;
+  left:0px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width:100%;
+  background-color: #170913;
+  padding: 10px;
+  height: 80px;
+  box-sizing: border-box;
+  border: none;
+  background:
+    linear-gradient(#170913, #170913) padding-box,
+    linear-gradient(45deg, #FC5306, #dd0067) border-box;
+  border: 3px solid transparent;
+}
+.imr{
+  height:100%;
+}
+.imrg{
+  display:flex;
+  flex-direction: column;
+}
+.imrgh{
+  font-size: 1.5em;
+}
+.imrgs{
+  font-size: 1.2em;
+}
+.imrgs.a{
+  font-size: 0.9em;
+  text-decoration: underline;
+  cursor: pointer;
 }
