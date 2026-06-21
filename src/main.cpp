@@ -844,6 +844,7 @@ void openAudioFile(int songIndex) {
   if (songIndex < 0 || songIndex >= songCount) return;
   if (Filename[songIndex].length() == 0) return;
 
+  audio_sd_ready = false;
   if (audio_file) audio_file.close();
 
   String path = "/" + Filename[songIndex];
@@ -869,10 +870,17 @@ int32_t get_sound_data(uint8_t* data, int32_t byte_count) {
   }
 
   int32_t bytes_read = (int32_t)audio_file.read(data, (size_t)byte_count);
-
   if (bytes_read == 0) {
-    audio_file.seek(0);
-    bytes_read = (int32_t)audio_file.read(data, (size_t)byte_count);
+    if (!audio_switch_pending) {
+      int next_index = audio_playing_index + 1;
+      if (next_index >= songCount) {
+        next_index = 0;
+      }
+      audio_pending_index = next_index;
+      audio_switch_pending = true;
+    }
+    memset(data, 0, byte_count);
+    return byte_count;
   }
 
   if (bytes_read > 0) {
@@ -1021,6 +1029,15 @@ void loop() {
     pending_addr_save = false;
     saveSpeaker(TARGET_SPEAKER, TARGET_ADDR);
   }
+
+  if (audio_switch_pending) {
+    audio_switch_pending = false;
+    if (audio_pending_index >= 0 && audio_pending_index < songCount) {
+      selectedSong = audio_pending_index;
+      openAudioFile(audio_pending_index);
+    }
+  }
+
   static bool lastNext = HIGH;
   static bool lastBack = HIGH;
   static bool lastCONFIRM = HIGH;
