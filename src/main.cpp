@@ -27,6 +27,7 @@ volatile bool       audio_sd_ready  = false;
 volatile bool       audio_switch_pending = false;
 volatile int        audio_pending_index  = -1;
 int                 audio_playing_index  = -1;
+bool                audio_paused         = false;
 
 // BT connection state — set only from BT callbacks, read from main task
 volatile bool       bt_connected         = false;
@@ -831,19 +832,20 @@ tft.drawBitmap(117, 150, image_Volup_bits, 8, 6, 0xFFFF);
   
 }
 //BUTTONS init
-const int BTN_NEXT = 21;
-const int BTN_BACK = 22;
-const int CONFIRM = 16;
-const int UP = 15;
-const int DOWN = 17; 
-const int RIGHT = 4;
-const int LEFT = 13;
+const int BTN_NEXT = 21; //DOWN
+const int BTN_BACK = 22; //UP
+const int CONFIRM = 16; //CONFIRM
+const int UP = 15; //VOLUP
+const int DOWN = 17; //VOLDOWN
+const int RIGHT = 4; //RIGHT
+const int LEFT = 13; //LEFT
  
 void openAudioFile(int songIndex) {
   if (songIndex < 0 || songIndex >= songCount) return;
   if (Filename[songIndex].length() == 0) return;
 
   audio_sd_ready = false;
+  audio_paused   = false;
   if (audio_file) audio_file.close();
 
   String path = "/" + Filename[songIndex];
@@ -1160,8 +1162,9 @@ void loop() {
       musiclist();
     } else if (screenname == "PLAYING"){
         if (audio_file) {
-          audio_file.close();
-          audio_sd_ready = false;
+          audio_paused = !audio_paused;
+          audio_sd_ready = !audio_paused;
+          Serial.println(audio_paused ? "[AUDIO] Paused" : "[AUDIO] Resumed");
         }
       } else if (screenname == "MUSILIST"){
       if (songCount > 0) {
@@ -1271,6 +1274,11 @@ void loop() {
       leftPressStart = millis();
     } else if (millis() - leftPressStart > 2000) { 
       Serial.println("LEFT Long Pressed");
+      
+        if (audio_file) {
+          audio_file.close();
+          audio_sd_ready = false;
+        }
       if (screenname == "PLAYING") {
         screenname = "MUSILIST";
         musiclist();
