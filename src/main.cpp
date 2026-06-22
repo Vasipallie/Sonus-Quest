@@ -835,10 +835,10 @@ const int BTN_NEXT = 21;
 const int BTN_BACK = 22;
 const int CONFIRM = 16;
 const int UP = 15;
-const int DOWN = 17;/* 
-const int RIGHT = 34;
+const int DOWN = 17; 
+const int RIGHT = 4;
 const int LEFT = 13;
- */
+ 
 
 void openAudioFile(int songIndex) {
   if (songIndex < 0 || songIndex >= songCount) return;
@@ -950,9 +950,9 @@ void setup(){
     update_volume_gain();
     pinMode(BTN_NEXT, INPUT_PULLUP);
     pinMode(BTN_BACK, INPUT_PULLUP);
-    pinMode(CONFIRM, INPUT_PULLUP);/* 
+    pinMode(CONFIRM, INPUT_PULLUP);
     pinMode(RIGHT, INPUT_PULLUP);
-    pinMode(LEFT, INPUT_PULLUP); */
+    pinMode(LEFT, INPUT_PULLUP); 
 
     pinMode(UP, INPUT_PULLUP);
     pinMode(DOWN, INPUT_PULLUP);
@@ -1042,19 +1042,19 @@ void loop() {
   static bool lastBack = HIGH;
   static bool lastCONFIRM = HIGH;
   static bool lastUP = HIGH;
-  static bool lastDOWN = HIGH;/* 
+  static bool lastDOWN = HIGH;
   static bool lastRIGHT = HIGH;
-  static bool lastLEFT = HIGH; */
+  static bool lastLEFT = HIGH; 
 
   
   bool nowNext = digitalRead(BTN_NEXT);
   bool nowBack = digitalRead(BTN_BACK);
   bool nowCONFIRM = digitalRead(CONFIRM);
   bool nowUP = digitalRead(UP);
-  bool nowDOWN = digitalRead(DOWN);/* 
+  bool nowDOWN = digitalRead(DOWN); 
   bool nowRIGHT = digitalRead(RIGHT);
   bool nowLEFT = digitalRead(LEFT);
- */
+ 
    if (lastUP == HIGH && nowUP == LOW) {
     Serial.println("UP Pressed");
     volup();
@@ -1184,7 +1184,7 @@ void loop() {
       homem();
     }
     delay(150);
-  }/* 
+  }
   if (lastRIGHT == HIGH && nowRIGHT == LOW) {
     Serial.println("RIGHT Pressed");
     if (screenname == "HOMEM"){
@@ -1237,12 +1237,12 @@ void loop() {
     }
   } else {
     leftPressStart = 0; 
-  } */
+  } 
   lastNext    = nowNext;
   lastBack    = nowBack;
   lastCONFIRM = nowCONFIRM;
   lastUP      = nowUP;   
   lastDOWN    = nowDOWN; 
-  /* lastRIGHT = nowRIGHT;
-  lastLEFT = nowLEFT; */
+  lastRIGHT = nowRIGHT;
+  lastLEFT = nowLEFT; 
 }
