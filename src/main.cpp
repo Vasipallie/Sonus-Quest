@@ -570,7 +570,6 @@ void clearSongList() {
     Duration[i] = "";
   }
 }
-
 void parseLine(String line, int i) {
   int dash = line.indexOf('-');
   int eq = line.indexOf('=');
@@ -585,7 +584,6 @@ void parseLine(String line, int i) {
   Filename[i] = line.substring(plus + 1, gt);
   Duration[i] = line.substring(gt + 1);
 }
-
 void get_songlist(int songpos) {
   clearSongList();
 
@@ -615,7 +613,6 @@ void get_songlist(int songpos) {
   selectedSong = 0;
   visibleTop = 0;
 }
-
 void saveSpeaker(const String& name, const esp_bd_addr_t addr) {
   SD.remove("/data.txt");
   File f = SD.open("/data.txt", FILE_WRITE);
@@ -671,11 +668,23 @@ tft.setTextSize(2);
 tft.drawString("connect", 0, 24);
 
 }
-void musiclist() {
-  tft.fillScreen(0x1042);
+void musiclist(bool fullRefresh = true) {
+  if (fullRefresh) {
+    tft.fillScreen(0x1042);
 
-  tft.drawLine(0, 11, 127, 11, 0xFFFF);
-  tft.drawLine(0, 13, 127, 13, 0xFFFF);
+    tft.drawLine(0, 11, 127, 11, 0xFFFF);
+    tft.drawLine(0, 13, 127, 13, 0xFFFF);
+
+    tft.setTextSize(2);
+    tft.setFreeFont(&FreeSans9pt7b);
+    tft.setTextColor(0xFFFF);
+    tft.drawString("Music", 1, 17);
+
+    tft.setTextSize(1);
+    tft.setFreeFont(NULL);
+    tft.setTextColor(bt_connected ? (uint16_t)0xFFFF : (uint16_t)0xF800);
+    tft.drawString(getStatusText(), 1, 2);
+  }
 
   int maxVisibleTop = max(0, songCount - VIEW_ROWS);
   if (selectedSong < visibleTop) visibleTop = selectedSong;
@@ -687,22 +696,17 @@ void musiclist() {
 
   for (int row = 0; row < VIEW_ROWS; row++) {
     int songIndex = visibleTop + row;
-    if (songIndex >= songCount) break;
-
     int y = 47 + row * 11;
+    
+    if (!fullRefresh) {
+      tft.fillRect(0, y, 128, 11, 0x1042);
+    }
+    
+    if (songIndex >= songCount) continue;
+
     tft.setTextColor(songIndex == selectedSong ? 0xFFFF : 0xE499);
     tft.drawString(Title[songIndex] + "-" + Artist[songIndex], 3, y);
   }
-
-  tft.setTextSize(2);
-  tft.setFreeFont(&FreeSans9pt7b);
-  tft.setTextColor(0xFFFF);
-  tft.drawString("Music", 1, 17);
-
-  tft.setTextSize(1);
-  tft.setFreeFont(NULL);
-  tft.setTextColor(bt_connected ? (uint16_t)0xFFFF : (uint16_t)0xF800);
-  tft.drawString(getStatusText(), 1, 2);
 }
 void boot(){
   static const unsigned char PROGMEM image_Iuf6aj_6ahZohbxT5Jb8q_transformed_bits[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0xfc,0x00,0x07,0x00,0x00,0x00,0x00,0x07,0xff,0x80,0x07,0x00,0x00,0x00,0x00,0x0f,0xff,0xe0,0x07,0x00,0x00,0x00,0x00,0x3f,0xff,0xf0,0x0f,0x80,0x00,0x00,0x00,0x7f,0xff,0xf8,0x0f,0x80,0x00,0x00,0x00,0xff,0xff,0xfc,0x1f,0xc0,0x00,0x00,0x00,0xff,0xff,0xfe,0x1f,0xc0,0x00,0x00,0x01,0xff,0xff,0xfe,0x3f,0xc0,0x00,0x00,0x0f,0xff,0xff,0xff,0x7f,0xff,0x00,0x00,0x3f,0xff,0xff,0xff,0x7f,0xff,0xf8,0x00,0x7f,0xff,0xff,0xff,0xff,0xff,0xf0,0x00,0xff,0xff,0xff,0xff,0x8f,0xff,0xe0,0x01,0xff,0xff,0xff,0xff,0xf3,0xff,0xc0,0x03,0xff,0xff,0xff,0xff,0xfd,0xff,0x00,0x03,0xff,0xff,0xff,0xff,0xfe,0xfe,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0x7c,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xf8,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xbc,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xbc,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xbc,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xfc,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xfe,0x00,0x07,0xff,0xff,0xff,0xff,0xff,0xbe,0x00,0x03,0xff,0xff,0xff,0xff,0xff,0xbe,0x00,0x03,0xff,0xff,0xff,0xff,0xff,0x8e,0x00,0x01,0xff,0xff,0xff,0xff,0xff,0x02,0x00,0x00,0xff,0xff,0xff,0xff,0xfe,0x01,0x00,0x00,0x7f,0xff,0xff,0xff,0xfe,0x00,0x00,0x00,0x3f,0xff,0xff,0xff,0xf8,0x00,0x00,0x00,0x07,0xff,0xff,0xff,0xe0,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
@@ -712,7 +716,6 @@ void boot(){
   tft.setTextSize(1);
   tft.drawString("Sonus Quest", 32, 84);
 }
-
 void update_volume_gain() {
   if (current_volume <= MIN_VOLUME) {
     volume_gain = 0.0f;
@@ -804,31 +807,28 @@ void connect(){
     tft.drawString(foundDevices[i].name.c_str(), 3, ypos[i]);
   }
 }
-
 void musicplay(String title, String artist, String duration) {
 
 tft.fillScreen(0x1042);
-tft.fillRect(2, 128, 124, 3, 0xB272);
+
+tft.drawLine(0, 11, 127, 11, 0xFFFF);
 tft.setTextColor(0xFFFF);
 tft.setTextSize(1);
 tft.setFreeFont(&FreeSans9pt7b);
-tft.drawString(title, 2, 104);
+tft.drawString(title, 2, 100);
 tft.setTextColor(0xBDF7);
 tft.setFreeFont(NULL);
-tft.drawString(duration, 97, 133);
-tft.drawLine(1, 129, 126, 129, 0xB272);
+tft.drawString(duration, 95, 133);
 tft.drawString("0:00", 2, 133); 
 tft.setTextColor(0xFFFF);
-tft.drawString(artist, 3, 119);
-tft.drawLine(0, 11, 127, 11, 0xFFFF);
-tft.drawLine(2, 129, 88, 129, 0xFFFF);
+tft.drawString(artist, 3, 117);
 tft.setTextColor(bt_connected ? (uint16_t)0xFFFF : (uint16_t)0xF800);
 tft.drawString(getStatusText(), 1, 2);
 tft.drawBitmap(37, 37, image_music_sound_wave_bits, 51, 48, 0xFFFF);
 tft.drawBitmap(3, 150, image_Voldwn_bits, 6, 6, 0xFFFF);
 tft.drawBitmap(117, 150, image_Volup_bits, 8, 6, 0xFFFF);
-  tft.drawLine(0, 144, 127, 144, 0xFFFF);
   draw_volume_bar();
+  
 }
 //BUTTONS init
 const int BTN_NEXT = 21;
@@ -839,7 +839,6 @@ const int DOWN = 17;
 const int RIGHT = 4;
 const int LEFT = 13;
  
-
 void openAudioFile(int songIndex) {
   if (songIndex < 0 || songIndex >= songCount) return;
   if (Filename[songIndex].length() == 0) return;
@@ -1020,7 +1019,45 @@ void setup(){
         a2dp_source.start(speakerBuf);
     }
 }
+unsigned long last_ui_update_time = 0;
+void update_playing_progress() {
+  if (screenname == "PLAYING" && audio_sd_ready && audio_file && audio_file.size() > 0) {
+    if (millis() - last_ui_update_time >= 1000) {
+      last_ui_update_time = millis();
+      
+      String durStr = Duration[selectedSong];
+      int totalSec = 0;
+      int colon = durStr.indexOf(':');
+      if (colon > 0) {
+        totalSec = durStr.substring(0, colon).toInt() * 60 + durStr.substring(colon + 1).toInt();
+      }
+      
+      if (totalSec > 0) {
+        float progress = (float)audio_file.position() / (float)audio_file.size();
+        int currentSec = progress * totalSec;
+        
+        char buf[10];
+        sprintf(buf, "%d:%02d", currentSec / 60, currentSec % 60);
+        
+        tft.setFreeFont(NULL);
+        tft.setTextSize(1);
+        tft.setTextColor(0xBDF7);
+        tft.fillRect(2, 133, 35, 8, 0x1042); 
+        tft.drawString(buf, 2, 133);
+        
+        tft.fillRect(2, 128, 124, 3, 0xB272);
+        tft.drawLine(1, 129, 126, 129, 0xB272);
+        int barWidth = progress * 124;
+        if (barWidth > 0) {
+          tft.drawLine(2, 129, 2 + barWidth - 1, 129, 0xFFFF);
+        }
+      }
+    }
+  }
+}
 void loop() {
+  update_playing_progress();
+
   if (bt_status_changed) {
     bt_status_changed = false;
     updateStatusBar();
@@ -1073,7 +1110,7 @@ void loop() {
     } else if (screenname == "MUSILIST"){
       if (songCount > 0 && selectedSong < songCount - 1) {
         selectedSong++;
-        musiclist();
+        musiclist(false);
       }
     } else if (screenname == "CONNECT" && deviceCount > 0) {
       if (selectedIndex < deviceCount - 1) {
@@ -1097,7 +1134,7 @@ void loop() {
     } else if (screenname == "MUSILIST"){
       if (songCount > 0 && selectedSong > 0) {
         selectedSong--;
-        musiclist();
+        musiclist(false);
       }
     } else if (screenname == "CONNECT" && deviceCount > 0) {
       if (selectedIndex > 0) {
@@ -1121,7 +1158,12 @@ void loop() {
     if (screenname == "HOMEM"){
       screenname = "MUSILIST";
       musiclist();
-    } else if (screenname == "MUSILIST"){
+    } else if (screenname == "PLAYING"){
+        if (audio_file) {
+          audio_file.close();
+          audio_sd_ready = false;
+        }
+      } else if (screenname == "MUSILIST"){
       if (songCount > 0) {
         openAudioFile(selectedSong);
       }
@@ -1148,7 +1190,7 @@ void loop() {
       if (a2dp_source.is_connected()) {
         a2dp_source.end(false);
         delay(300);
-      }
+      } 
 
       esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
 
@@ -1245,4 +1287,5 @@ void loop() {
   lastDOWN    = nowDOWN; 
   lastRIGHT = nowRIGHT;
   lastLEFT = nowLEFT; 
+
 }
